@@ -1,21 +1,69 @@
 using System;
-using System.Collections;
-using System.Collections.Generic;
 using Kinetix;
 using Kinetix.UI;
-using UnityEditor.Networking.PlayerConnection;
+using Unity.Netcode;
 using UnityEngine;
 using UnityEngine.InputSystem;
 
-public class KinetixEmoteController : MonoBehaviour
+public class KinetixEmoteController : NetworkBehaviour
 {
-    private void Awake()
+
+    private KinetixCharacterComponent m_kinetixCharacterComponent;
+    private byte[] m_previousPose = Array.Empty<byte>();
+
+    public override void OnNetworkSpawn()
     {
-        KinetixCore.OnInitialized += ConnectPlayer;
+        base.OnNetworkSpawn();
+
+        if (IsOwner)
+        {
+            ConnectPlayer();
+            NetworkManager.Singleton.NetworkTickSystem.Tick += OnTick;
+        }
+        else
+        {
+            KinetixCore.Network.RegisterRemotePeerAnimator(NetworkObjectId.ToString(),GetComponent<Animator>());
+            m_kinetixCharacterComponent = KinetixCore.Network.GetRemoteKCC(NetworkObjectId.ToString());
+        }
+        
+    }
+
+    private void OnTick()
+    {
+        if (m_kinetixCharacterComponent == null) return;
+        SendEmoteOnNetwork();
+    }
+
+    private void SendEmoteOnNetwork()
+    {
+        var currentPose = m_kinetixCharacterComponent.GetSerializedPose();
+        if (currentPose.Length > 0 || m_previousPose.Length > 0)
+        {
+            //Send data to server
+            SendPoseDataToServerRpc(currentPose, NetworkObjectId);
+        }
+        m_previousPose = currentPose;
+    }
+
+    [ServerRpc]
+    private void SendPoseDataToServerRpc(byte[] _currentPose, ulong _networkObjectId)
+    {
+        SendPoseDataToClientRpc(_currentPose, _networkObjectId);
+    }
+
+    [ClientRpc]
+    private void SendPoseDataToClientRpc(byte[] _currentPose, ulong _networkObjectId)
+    {
+        Debug.Log("SendPoseDataToClientRpc from "+_networkObjectId);
+        if (IsOwner) return;
+        if (_networkObjectId != NetworkObjectId) return;
+        var timer = DateTime.UtcNow.Subtract(new DateTime(1970, 1, 1)).TotalSeconds;
+        m_kinetixCharacterComponent.ApplySerializedPose(_currentPose,timer);
     }
 
     private void ConnectPlayer()
     {
+        Debug.Log("This is the local player");
         KinetixCore.Account.OnConnectedAccount += InitPlayer;
         KinetixCore.Account.ConnectAccount("TestUser");
     }
@@ -23,6 +71,7 @@ public class KinetixEmoteController : MonoBehaviour
     private void InitPlayer()
     {
         KinetixCore.Animation.RegisterLocalPlayerAnimator(GetComponent<Animator>());
+        m_kinetixCharacterComponent = KinetixCore.Animation.GetLocalKCC();
         KinetixUIEmoteWheel.Initialize();
     }
 
