@@ -65,7 +65,7 @@ public class KinetixEmoteController : NetworkBehaviour
     {
         Debug.Log("This is the local player");
         KinetixCore.Account.OnConnectedAccount += InitPlayer;
-        KinetixCore.Account.ConnectAccount("TestUser");
+        KinetixCore.Account.ConnectAccount(ConnectionInfo.UserName);
     }
 
     private void InitPlayer()
